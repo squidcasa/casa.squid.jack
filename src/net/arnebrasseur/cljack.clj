@@ -23,6 +23,7 @@
   (:require
    [clojure.pprint :as pprint])
   (:import
+   (java.util EnumSet)
    (org.jaudiolibs.jnajack
     Jack
     JackClient
@@ -31,6 +32,7 @@
     JackMidi$Event
     JackOptions
     JackPosition
+    JackPositionBits
     JackPortFlags
     JackPortType
     JackProcessCallback
@@ -45,8 +47,7 @@
     JackTimebaseCallback
     JackTransportState
     JackGraphOrderCallback
-    JackStatus)
-   (java.util EnumSet)))
+    JackStatus)))
 
 (set! *warn-on-reflection* true)
 
@@ -86,7 +87,7 @@
 
 (defrecord JackClientWrapper [^JackClient client registry]
   Registry
-  (register [_ t k val]
+  (register [this t k value]
     (swap! registry
            (fn [registry]
              ;; FIXME: despite being inside the swap this can potentially still
@@ -95,9 +96,9 @@
              ;; init to happen exactly once.
              (when-not (or (get registry t)
                            (get registry (get callback-pairs t))
-                           (get registry (get (into {} (juxt val key) callback-pairs) t)))
-               (init-callback! client (get callback-pairs t t)))
-             (assoc-in registry [t k] val))))
+                           (get registry (get (into {} (map (juxt val key)) callback-pairs) t)))
+               (init-callback! this (get callback-pairs t t)))
+             (assoc-in registry [t k] value))))
   (unregister [_ t k]
     (swap! registry update t dissoc k))
   (lookup [_ t k]
@@ -156,6 +157,14 @@
         registry (atom {})]
     #_(when (seq status)
         (println "make-client:" (map str status)))
+    ;; These can't be registered once a client has been activated, so we do it
+    ;; eagerly during init.
+    (registry-callback client registry Process setProcessCallback
+                       process :process [client frames])
+    (registry-callback client registry BufferSize setBuffersizeCallback
+                       buffersizeChanged :buffer-size-changed [client buffersize])
+    (registry-callback client registry SampleRate setSampleRateCallback
+                       sampleRateChanged :sample-rate-changed [client rate])
     (.activate client)
     (let [c (->JackClientWrapper client registry)]
       (swap! clients assoc name c)
@@ -194,7 +203,7 @@
 (defn port
   "Get a virtual audio or midi port."
   ([name type flags]
-   (midi-port @default-client name type))
+   (port @default-client name type flags))
   ([^JackClientWrapper client name type flags]
    (assert (keyword? name))
    (if-let [port (lookup client type name)]
@@ -361,22 +370,47 @@
              (connect client from to)
              (catch Exception _))))))))
 
+(def position-bits
+  {JackPositionBits/JackPositionBBT :bbt
+   JackPositionBits/JackPositionTimecode :timecode
+   JackPositionBits/JackBBTFrameOffset :bbt-frame-offset
+   JackPositionBits/JackAudioVideoRatio :audio-video-rate
+   JackPositionBits/JackVideoFrameOffset :video-frame-offset})
+
 (defn pos->map [^JackPosition pos]
-  {:bar (.getBar pos)
-   :beat (.getBeat pos)
-   :tick (.getTick pos)
-   :ticks-per-beat (.getTicksPerBeat pos)
-   :frame (.getFrame pos)
-   :frame-rate (.getFrameRate pos)
-   :bpm (.getBeatsPerMinute pos)
-   :beats-per-bar (.getBeatsPerBar pos)
-   :beat-type (.getBeatType pos)})
+  (let [valid (into #{} (map position-bits (.getValid pos)))]
+    (cond-> {:frame (.getFrame pos)
+             :frame-rate (.getFrameRate pos)
+             :usecs (.getUsecs pos)
+             :valid valid}
+      (:bbt valid)
+      (assoc
+       :bar (.getBar pos)
+       :beat (.getBeat pos)
+       :tick (.getTick pos)
+       :ticks-per-beat (.getTicksPerBeat pos)
+       :bpm (.getBeatsPerMinute pos)
+       :beats-per-bar (.getBeatsPerBar pos)
+       :beat-type (.getBeatType pos)
+       :bbt-offset 0)
+      (:timecode valid)
+      (assoc
+       :frame-time (.getFrameTime pos)
+       :bbt-offset (.getBbtOffset pos)
+       :next-time (.getNextTime pos)
+       :audio-frames-per-video-frame (.getAudioFramesPerVideoFrame pos)
+       :video-offset (.getVideoOffset pos))
+      (:bbt-frame-offset valid)
+      (assoc
+       :bbt-offset (.getBbtOffset pos)))))
 
 (defn transport-pos
   "Get the current transport position as a map."
-  [client]
-  (let [state (.transportQuery ^JackClient (:client client) global-jack-pos)]
-    (assoc
+  ([]
+   (transport-pos @default-client))
+  ([client]
+   (let [state (.transportQuery ^JackClient (:client client) global-jack-pos)]
+     (assoc
       (pos->map global-jack-pos)
       :state
       (cond
@@ -385,15 +419,12 @@
         (= state JackTransportState/JackTransportLooping)     :looping
         (= state JackTransportState/JackTransportStarting)    :starting
         (= state JackTransportState/JackTransportNetStarting) :net-starting ;; Waiting for sync ready on the network
-        ))))
+        )))))
 
-(defmethod init-callback! :process [{:keys [^JackClient client registry]} _]
-  (registry-callback client registry Process setProcessCallback
-                     process :process [client frames]))
+(defmethod init-callback! :process [_ _])
+(defmethod init-callback! :buffer-size-changed [_ _])
+(defmethod init-callback! :sample-rate-changed [_ _])
 
-(defmethod init-callback! :buffer-size-changed [{:keys [^JackClient client registry]} _]
-  (registry-callback client registry BufferSize setBuffersizeCallback
-                     buffersizeChanged :buffer-size-changed [client buffersize]))
 
 (defmethod init-callback! :client-registered [{:keys [^JackClient client registry]} _]
   (registry-callback client registry ClientRegistration setClientRegistrationCallback
@@ -410,9 +441,7 @@
                      portRegistered :port-registered [client port-name]
                      portUnregistered :port-unregistered [client port-name]))
 
-(defmethod init-callback! :sample-rate-changed [{:keys [^JackClient client registry]} _]
-  (registry-callback client registry SampleRate setSampleRateCallback
-                     sampleRateChanged :sample-rate-changed [client rate]))
+
 
 (defmethod init-callback! :client-shutdown [{:keys [^JackClient client registry]} _]
   (registry-callback client registry Shutdown onShutdown
@@ -444,11 +473,11 @@
                             client-or-force?
                             false)))
   ([client force?]
-   (let [{:keys [^JackClient client registry]} client]
-     (registry-callback client registry Timebase setTimebaseCallback
+   (let [{:keys [ registry]} client]
+     (registry-callback ^JackClient (:client client) registry Timebase setTimebaseCallback
                         updatePosition :update-position [client state frame pos new-pos]
                         (not force?)))
    client))
 
-(defmethod init-callback! :update-position [{:keys [^JackClient client registry]} _]
+(defmethod init-callback! :update-position [client _]
   (make-transport-leader client false))
