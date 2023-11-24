@@ -1,4 +1,4 @@
-(ns net.arnebrasseur.cljack
+(ns casa.squid.jack
   "Wrapper for Jack (Jack Audio Connection Kit) midi
 
   Allows creating in/out ports, and registering callbacks of various types.

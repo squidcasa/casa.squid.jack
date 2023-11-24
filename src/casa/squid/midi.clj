@@ -1,4 +1,4 @@
-(ns net.arnebrasseur.cljack.midi
+(ns casa.squid.midi
   "MIDI message parsing and construction logic.
 
   Interpreting and constructing of midi message as byte arrays (signed) or long
