@@ -1,4 +1,4 @@
-# cljack - Clojure Wrapper for Jack JNA
+# casa.squid.jack - Clojure Wrapper for Jack JNA
 
 The Jack API provides a way for audio applications on Linux to deal with audio
 and midi signals, as well as providing a transport API, so applications can
