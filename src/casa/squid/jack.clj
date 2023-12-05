@@ -332,6 +332,9 @@
 
 (defn connect
   "Connect two jack ports, `from` and `two` are strings."
+  ([conns]
+   (doseq [[from to] conns]
+     (connect from to)))
   ([from to]
    (connect @default-client from to))
   ([client from to]
