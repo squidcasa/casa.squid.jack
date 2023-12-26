@@ -1,7 +1,7 @@
-(ns net.arnebrasseur.cljack.transport-leader
+(ns casa.squid.jack.transport-leader
   "A Jack Transport leader that will set beat/bar/tick position information."
   (:require
-   [net.arnebrasseur.cljack :as jack])
+   [casa.squid.jack :as jack])
   (:import
    (java.util EnumSet)
    (org.jaudiolibs.jnajack JackPosition JackPositionBits)))
@@ -86,6 +86,7 @@ can swap! this to change e.g. the tempo."}
       ))))
 
 (comment
+  (initialize!)
   (jack/seek-transport! 0)
   (jack/start-transport!)
   (jack/stop-transport!)
@@ -95,5 +96,5 @@ can swap! this to change e.g. the tempo."}
   (calculate-timings 48000 0 @timing)
 
   (swap! timing assoc :ticks-per-beat 1920)
-  (swap! timing assoc :beats-per-minute 120)
+  (swap! timing assoc :beats-per-minute 90)
   )
