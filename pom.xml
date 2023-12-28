@@ -3,14 +3,14 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>casa.squid</groupId>
   <artifactId>jack</artifactId>
-  <version>0.1.8</version>
+  <version>0.1.11</version>
   <name>jack</name>
   <description>Jack Audio Connection Kit - Clojure API</description>
-  <url>https://github.com/lambdaisland/casa.squid.jack</url>
+  <url>https://github.com//casa.squid.jack</url>
   <inceptionYear>2023</inceptionYear>
   <organization>
-    <name>Lambda Island</name>
-    <url>https://lambdaisland.com</url>
+    <name>Squid Casa</name>
+    <url>https://squid.casa</url>
   </organization>
   <properties>
     <project class="build sourceEncoding">UTF-8</project>
@@ -22,10 +22,10 @@
     </license>
   </licenses>
   <scm>
-    <url>https://github.com/lambdaisland/casa.squid.jack</url>
-    <connection>scm:git:git://github.com/lambdaisland/casa.squid.jack.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/lambdaisland/casa.squid.jack.git</developerConnection>
-    <tag>9039c9d93c22d27b0c6e90baf981e2c73c609e16</tag>
+    <url>https://github.com//casa.squid.jack</url>
+    <connection>scm:git:git://github.com//casa.squid.jack.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com//casa.squid.jack.git</developerConnection>
+    <tag>f7029b91a292c3e2c3d9e8d0b3086fed34ae6504</tag>
   </scm>
   <dependencies>
     <dependency>
@@ -58,7 +58,7 @@
         <configuration>
           <archive>
             <manifestEntries>
-              <git-revision>9039c9d93c22d27b0c6e90baf981e2c73c609e16</git-revision>
+              <git-revision>f7029b91a292c3e2c3d9e8d0b3086fed34ae6504</git-revision>
             </manifestEntries>
           </archive>
         </configuration>
