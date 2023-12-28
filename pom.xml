@@ -3,10 +3,10 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>casa.squid</groupId>
   <artifactId>jack</artifactId>
-  <version>0.1.11</version>
+  <version>0.2.12</version>
   <name>jack</name>
   <description>Jack Audio Connection Kit - Clojure API</description>
-  <url>https://github.com//casa.squid.jack</url>
+  <url>https://github.com/plexus/casa.squid.jack</url>
   <inceptionYear>2023</inceptionYear>
   <organization>
     <name>Squid Casa</name>
@@ -22,10 +22,10 @@
     </license>
   </licenses>
   <scm>
-    <url>https://github.com//casa.squid.jack</url>
-    <connection>scm:git:git://github.com//casa.squid.jack.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com//casa.squid.jack.git</developerConnection>
-    <tag>f7029b91a292c3e2c3d9e8d0b3086fed34ae6504</tag>
+    <url>https://github.com/plexus/casa.squid.jack</url>
+    <connection>scm:git:git://github.com/plexus/casa.squid.jack.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/plexus/casa.squid.jack.git</developerConnection>
+    <tag>fc5a1973773f550b65288c2b31fb109e5c71c683</tag>
   </scm>
   <dependencies>
     <dependency>
@@ -58,7 +58,7 @@
         <configuration>
           <archive>
             <manifestEntries>
-              <git-revision>f7029b91a292c3e2c3d9e8d0b3086fed34ae6504</git-revision>
+              <git-revision>fc5a1973773f550b65288c2b31fb109e5c71c683</git-revision>
             </manifestEntries>
           </archive>
         </configuration>
