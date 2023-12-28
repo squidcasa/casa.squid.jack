@@ -6,6 +6,8 @@
  {:license        :mpl
   :name           "jack"
   :group-id       "casa.squid"
+  :org-name       "Squid Casa"
+  :org-url        "https://squid.casa"
   :inception-year 2023
   :description    "Jack Audio Connection Kit - Clojure API"})
 
