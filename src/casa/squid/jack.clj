@@ -33,6 +33,7 @@
     JackOptions
     JackPosition
     JackPositionBits
+    JackPort
     JackPortFlags
     JackPortType
     JackProcessCallback
@@ -71,11 +72,22 @@
   (unregister [this type key] "Remove a callback")
   (lookup [this type key] "Find a given callback"))
 
+(defprotocol PortId
+  (port-name [this]))
+
+(extend-protocol PortId
+  String
+  (port-name [this] this)
+  JackPort
+  (port-name [this] (.getName this)))
+
 (defmulti init-callback!
   "When a callback of a given type is registered for the first time, register an
   actual Java callback object for that type, which dispatches to all of our
   registered callbacks."
   (fn [client type] type))
+
+(defmethod init-callback! :default [_ _])
 
 (def callback-pairs
   "Some pairs of callbacks types are bundled in a single Java callback interface,
@@ -130,7 +142,7 @@
                       ;; callbacks of that type are skipped
                       (when ok?#
                         (try
-                          (cb# ~@args)
+                          (boolean (cb# ~@args))
                           (catch Exception e#
                             (println "Error in" '~method "callback" k#)
                             (println e#)
@@ -178,7 +190,7 @@
                client-name)]
     (or (get @clients name) (make-client name))))
 
-(defonce default-client (delay (client :cljack)))
+(defonce default-client (delay (client "Clojure")))
 
 (defn jack-port-type ^JackPortType [kw]
   (case kw
@@ -220,14 +232,28 @@
   ([name]
    (midi-in-port @default-client name))
   ([client name]
-   (port client name :midi :in)))
+   (port client name :midi [:in])))
 
 (defn midi-out-port
   "Get a midi output name for a given client with a given name. Idempotent."
   ([name]
-   (midi-in-port @default-client name))
+   (midi-out-port @default-client name))
   ([client name]
-   (port client name :midi :out)))
+   (port client name :midi [:out])))
+
+(defn audio-in-port
+  "Get a virtual audio input port with a given name. Idempotent."
+  ([name]
+   (audio-in-port @default-client name))
+  ([client name]
+   (port client name :audio [:in])))
+
+(defn audio-out-port
+  "Get a audio output name for a given client with a given name. Idempotent."
+  ([name]
+   (audio-out-port @default-client name))
+  ([client name]
+   (port client name :audio [:out])))
 
 (defn read-midi-event
   "Read one of the midi events that are available in this processing cycle for the
@@ -338,14 +364,14 @@
   ([from to]
    (connect @default-client from to))
   ([client from to]
-   (.connect (instance) (:client client) from to)))
+   (.connect (instance) (:client client) (port-name from) (port-name to))))
 
 (defn disconnect
   "Connect two jack ports, `from` and `two` are strings."
   ([from to]
    (disconnect @default-client from to))
   ([client from to]
-   (.disconnect (instance) (:client client) from to)))
+   (.disconnect (instance) (:client client) (port-name from) (port-name to))))
 
 (defn connect!
   "Sets jack connections to exactly the given connections, given as a list of
@@ -358,6 +384,8 @@
    (connect! @default-client conns))
   ([client conns]
    (let [ports (ports client)
+         conns (map (fn [[from to]] [(port-name from) (port-name to)])
+                    conns)
          existing (set (for [from ports
                              to (connections client from)]
                          (vec (sort [from to]))))]
