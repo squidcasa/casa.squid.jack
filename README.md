@@ -18,13 +18,13 @@ transport control.
 To use the latest release, add the following to your `deps.edn` ([Clojure CLI](https://clojure.org/guides/deps_and_cli))
 
 ```
-casa.squid/jack {:mvn/version "0.1.8"}
+casa.squid/jack {:mvn/version "0.2.12"}
 ```
 
 or add the following to your `project.clj` ([Leiningen](https://leiningen.org/))
 
 ```
-[casa.squid/jack "0.1.8"]
+[casa.squid/jack "0.2.12"]
 ```
 <!-- /installation -->
 
