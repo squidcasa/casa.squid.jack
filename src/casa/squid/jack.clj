@@ -21,34 +21,37 @@
   to [[add-watch!]] (idempotent, REPL safe, etc).
   "
   (:require
+   [casa.squid.midi :as midi]
    [clojure.pprint :as pprint])
   (:import
+   (java.nio ByteBuffer)
    (java.util EnumSet)
    (org.jaudiolibs.jnajack
     Jack
+    JackBufferSizeCallback
     JackClient
+    JackClientRegistrationCallback
     JackException
+    JackGraphOrderCallback
     JackMidi
     JackMidi$Event
     JackOptions
+    JackPort
+    JackPortConnectCallback
+    JackPortFlags
+    JackPortRegistrationCallback
+    JackPortType
     JackPosition
     JackPositionBits
-    JackPort
-    JackPortFlags
-    JackPortType
     JackProcessCallback
-    JackShutdownCallback
-    JackBufferSizeCallback
-    JackPortConnectCallback
-    JackPortRegistrationCallback
+    JackRingbuffer
     JackSampleRateCallback
     JackShutdownCallback
+    JackShutdownCallback
+    JackStatus
     JackSyncCallback
-    JackClientRegistrationCallback
     JackTimebaseCallback
-    JackTransportState
-    JackGraphOrderCallback
-    JackStatus)))
+    JackTransportState)))
 
 (set! *warn-on-reflection* true)
 
@@ -67,13 +70,15 @@
   clients
   (atom {}))
 
-(defprotocol Registry
-  (register [this type key val] "Register a callback")
-  (unregister [this type key] "Remove a callback")
-  (lookup [this type key] "Find a given callback"))
+(defonce protocols
+  (do
+    (defprotocol Registry
+      (register [this type key val] "Register a callback")
+      (unregister [this type key] "Remove a callback")
+      (lookup [this type key] "Find a given callback"))
 
-(defprotocol PortId
-  (port-name [this]))
+    (defprotocol PortId
+      (port-name [this]))))
 
 (extend-protocol PortId
   String
@@ -183,7 +188,7 @@
       c)))
 
 (defn client
-  "Get a client for a given name, creating it if it doesn't exist."
+  "Get a client (wrapper) for a given name, creating it if it doesn't exist."
   [client-name]
   (let [name (if (keyword? client-name)
                (subs (str client-name) 1)
@@ -227,20 +232,6 @@
        (register client type name port)
        port))))
 
-(defn midi-in-port
-  "Get a virtual midi input port with a given name. Idempotent."
-  ([name]
-   (midi-in-port @default-client name))
-  ([client name]
-   (port client name :midi [:in])))
-
-(defn midi-out-port
-  "Get a midi output name for a given client with a given name. Idempotent."
-  ([name]
-   (midi-out-port @default-client name))
-  ([client name]
-   (port client name :midi [:out])))
-
 (defn audio-in-port
   "Get a virtual audio input port with a given name. Idempotent."
   ([name]
@@ -270,21 +261,35 @@
   "Read midi events that happened in this processing cycle for a given input port.
   Call within a processing callback."
   [port]
-  (doall
-   (for [idx (range (JackMidi/getEventCount port))]
-     (read-midi-event port idx))))
+  (let [cnt (JackMidi/getEventCount port)]
+    (doall
+     (for [idx (range cnt)]
+       (read-midi-event port idx)))))
+
+(defn clear-midi-buffer [port]
+  (JackMidi/clearBuffer port))
 
 (defn write-midi-event
-  "Write a midi event to a given port at a given time (frame offset)."
-  [port time msg]
-  (JackMidi/eventWrite port time msg (count msg)))
+  "Write a midi event to a given port at a given time (frame offset).
+
+  msg should be byte-array or direct ByteBuffer.
+  "
+  ([^JackPort port ^long time msg]
+   (if (bytes? msg)
+     (JackMidi/eventWrite port time ^bytes msg (count msg))
+     (JackMidi/eventWrite port time ^ByteBuffer msg (.limit ^ByteBuffer msg))))
+  ([^JackPort port ^long time msg ^long len]
+   (println "WRITE" port time msg len)
+   (if (bytes? msg)
+     (JackMidi/eventWrite port time ^bytes msg len)
+     (JackMidi/eventWrite port time ^ByteBuffer msg len))))
 
 (defn filter-pipe
   "Utility for creating midi filters, forward all messages from `in` to `out` if
   they satisfy `pred`."
   [in out pred]
   (try
-    (JackMidi/clearBuffer out)
+    (clear-midi-buffer out)
     (dotimes [idx (JackMidi/getEventCount in)]
       (let [[msg time] (read-midi-event in idx)]
         (when (pred msg)
@@ -383,7 +388,11 @@
   ([conns]
    (connect! @default-client conns))
   ([client conns]
-   (let [ports (ports client)
+   (let [conns (for [[from to] conns
+                     from (if (coll? from) from [from])
+                     to (if (coll? to) to [to])]
+                 [from to])
+         ports (ports client)
          conns (map (fn [[from to]] [(port-name from) (port-name to)])
                     conns)
          existing (set (for [from ports
@@ -512,3 +521,113 @@
 
 (defmethod init-callback! :update-position [client _]
   (make-transport-leader client false))
+
+(defn sample-rate [client]
+  (.getSampleRate ^JackClient (:client client)))
+
+(defn last-frame-time [client]
+  (.getLastFrameTime ^JackClient (:client client)))
+
+(defn frames-to-time [client frame]
+  (.framesToTime ^JackClient (:client client) frame))
+
+(deftype DirectOutput [client id ^JackRingbuffer rb ^ByteBuffer write-buf]
+  midi/MidiOps
+  (-write [this message offset]
+    (let [message ^bytes message
+          len (count message)]
+      (println "-write" (seq message))
+      (if (<= (+ 9 len) (.getWriteSpace rb))
+        (do
+          (.clear write-buf)
+          (.put write-buf (byte len))
+          (.putLong write-buf offset)
+          (.put write-buf message)
+          (.flip write-buf)
+          (.write rb write-buf (.limit write-buf)))
+        (println "Warning: MIDI Buffer Overflow on" id))))
+
+  java.io.Closeable
+  (close [this]
+    (unregister client :process id)
+    (.free rb)))
+
+(defn wrap-direct-midi-output
+  "Wrap a midi port to get a port that does 'direct' (push-based) output, rather
+  than having to implement your own process callback."
+  [client ^JackPort port]
+  (let [id (random-uuid)
+        rb-size 16384
+        rb (.createRingbuffer (instance) rb-size)
+        ^ByteBuffer peek-buf (ByteBuffer/allocateDirect 9)
+        ^ByteBuffer read-worker (ByteBuffer/allocateDirect 1024)]
+
+    (register client :process id
+              (fn [_ nframes]
+                (clear-midi-buffer port)
+                (loop []
+                  (when (<= 9 (.getReadSpace rb))
+                    (.clear peek-buf)
+                    (.peek rb peek-buf 9)
+                    (let [msg-len (bit-and (.get peek-buf 0) 0xFF)
+                          event-offset (.getLong peek-buf 1)]
+                      (.advanceReadPointer rb 9)
+                      (when (<= msg-len (.getReadSpace rb))
+                        (.clear read-worker)
+                        (.read rb read-worker msg-len)
+                        (.flip read-worker)
+                        (write-midi-event port event-offset read-worker msg-len)
+                        (recur)))))
+                true))
+    (->DirectOutput client id rb (ByteBuffer/allocateDirect 1024))))
+
+(defn set-midi-callback! [client port callback]
+  (register
+   client :process :midi/receiver
+   (fn [_ nframes]
+     (when-let [events (seq (read-midi-events port))]
+       (doseq [[e t] events]
+         (callback e t)))
+     true)))
+
+(defn midi-in-port
+  "Get a virtual MIDI input port with a given name. Idempotent."
+  ([name]
+   (midi-in-port @default-client name))
+  ([client name]
+   (port client name :midi [:in])))
+
+(defn midi-out-port*
+  "Get a midi MIDI output port for a given client with a given name. Idempotent.
+
+  This returns the underlying JackPort, and should be used with a process
+  callback, since Jack is pull-based. See [[midi-out-port]] for a push-based
+  API.
+  "
+  ([name]
+   (midi-out-port* @default-client name))
+  ([client name]
+   (port client name :midi [:out])))
+
+(defn midi-out-port
+  "Get a 'direct', push-based MIDI output port for a given client with a given
+  name. You can [[midi/write]] events to this port directly, without having to
+  supply your own process callback."
+  ([name]
+   (midi-out-port @default-client name))
+  ([client name]
+   (wrap-direct-midi-output client (port client name :midi [:out]))))
+
+(extend-protocol midi/MidiOps
+  JackPort
+  (-write [port message offset]
+    (write-midi-event port offset message (count message)))
+  (-add-receiver [port callback]
+    (register
+     (client (.getName (.-client ^JackPort port))) :process callback
+     (fn [_ nframes]
+       (when-let [events (seq (read-midi-events port))]
+         (doseq [[e t] events]
+           (callback e t))))))
+  (-remove-receiver [port callback]
+    (unregister (client (.getName (.-client ^JackPort port))) :process callback)))

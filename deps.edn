@@ -1,1 +1,2 @@
-{:deps {org.jaudiolibs/jnajack {:mvn/version "1.4.0"}}}
+{:deps {casa.squid/jnajack {:mvn/version "1.5.1"}
+        casa.squid/midi {:local/root "../midi"}}}
