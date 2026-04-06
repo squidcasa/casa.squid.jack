@@ -373,6 +373,8 @@
 
 (defn disconnect
   "Connect two jack ports, `from` and `two` are strings."
+  ([[from to]]
+   (disconnect from to))
   ([from to]
    (disconnect @default-client from to))
   ([client from to]
